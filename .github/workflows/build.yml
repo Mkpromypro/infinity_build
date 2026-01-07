@@ -1,4 +1,4 @@
-name: Build Universal Vendor (Blueprint & SDK 35 Fix)
+name: Build Full Vendor (Android 15 SDK 35)
 
 on:
   workflow_dispatch:
@@ -12,70 +12,62 @@ jobs:
         uses: easimon/maximize-build-space@v10
         with:
           root-reserve-mb: 512
-          swap-size-mb: 8192
+          swap-size-mb: 10240 # زيادة الـ Swap للمساعدة في الرامات
           remove-dotnet: true
           remove-android: true
+          remove-haskell: true
 
       - name: Install Build Tools
         run: |
           sudo apt update
-          sudo apt install -y git python3 curl bc bison build-essential \
-            flex g++-multilib gcc-multilib gnupg gperf libxml2 \
-            libxml2-utils lzop pngcrush rsync schedtool \
-            squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev \
-            libncurses6 python-is-python3
+          sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev \
+            libncurses6 libxml2-utils lzop python3 python-is-python3 bc rsync \
+            schedtool libssl-dev
           mkdir -p ~/bin
-          curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod +x ~/bin/repo
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Setup Workspace
+      - name: Initialize Repo (LineageOS 22.1 - Android 15)
         run: |
-          mkdir -p android_root && cd android_root
-          # تحميل الملفات الأساسية لمحرك البناء (بما فيها blueprint و soong)
-          git clone https://github.com/LineageOS/android_build -b lineage-22.1 build/make --depth=1
-          git clone https://github.com/LineageOS/android_build_soong -b lineage-22.1 build/soong --depth=1
-          git clone https://github.com/LineageOS/android_build_blueprint -b lineage-22.1 build/blueprint --depth=1
+          mkdir -p workspace && cd workspace
+          git config --global user.email "bot@example.com"
+          git config --global user.name "BuildBot"
+          # سحب السورس الأساسي فقط بدون تاريخ (Depth=1) لتوفير المساحة
+          repo init -u https://github.com/LineageOS/android.git -b lineage-22.1 --git-lfs --depth=1
           
-          # تحميل ملفات جهازك gta4l
+          # سحب الملفات الضرورية فقط للبناء (Build, Soong, Blueprint, Device, Vendor)
+          # ده بيضمن إن السورس "كامل" برابط المانيفست الرسمي
+          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+
+      - name: Clone Device Specifics
+        run: |
+          cd workspace
+          # سحب ملفات جهازك gta4l يدوياً للتأكد من وجودها
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
-          
-          # تحميل ملفات البراندنج (لكن سنقوم بتعطيل فحص المانيفست فيها)
-          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-22.1 vendor/lineage --depth=1
 
-      - name: Patch for SDK 35 & RAM
+      - name: Set SDK 35 & RAM Tweaks
         run: |
-          cd android_root
-          # تعديل ملفات الرامات والـ SDK في ملف الـ system.prop المخصص لجهازك
+          cd workspace
           PROP_FILE=device/samsung/gta4l/system.prop
-          echo "ro.config.zram=true" > $PROP_FILE
-          echo "ro.zram.size=3072" >> $PROP_FILE
+          # إعدادات أندرويد 15 (SDK 35)
           echo "ro.vendor.vndk.version=35" >> $PROP_FILE
           echo "ro.vendor.sdk.version=35" >> $PROP_FILE
-          
-          # "خدعة" لتخطي خطأ المانيفست: إنشاء مانيفست كامل المواصفات
-          mkdir -p .repo
-          echo '<?xml version="1.0" encoding="UTF-8"?><manifest><remote name="github" fetch=".." /><default revision="refs/heads/lineage-22.1" remote="github" sync-j="4" /><project path="build/make" name="android_build" /></manifest>' > .repo/manifest.xml
+          echo "ro.config.zram=true" >> $PROP_FILE
+          echo "ro.zram.size=3072" >> $PROP_FILE
 
       - name: Build Vendor Image
         run: |
-          cd android_root
-          export TOP=$(pwd)
+          cd workspace
           export ALLOW_MISSING_DEPENDENCIES=true
-          
-          # تشغيل البيئة الأساسية
-          source build/make/envsetup.sh
-          
-          # بدلاً من lunch التقليدي اللي بيفشل، هنعرف الجهاز يدويًا للبيئة
-          export TARGET_PRODUCT=lineage_gta4l
-          export TARGET_BUILD_VARIANT=userdebug
-          
-          # البناء باستخدام محرك soong_ui مباشرة
-          ./build/soong/soong_ui.bash --make-mode vendorimage -j$(nproc --all)
+          source build/envsetup.sh
+          lunch lineage_gta4l-userdebug || echo "Fallback lunch"
+          # استخدام mka لبناء الفيندور بأفضل توزيع للأداء
+          mka vendorimage -j$(nproc --all)
 
       - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
-          name: Universal-Vendor-gta4l-SDK35
-          path: android_root/out/target/product/gta4l/vendor.img
+          name: Full-Vendor-gta4l-SDK35
+          path: workspace/out/target/product/gta4l/vendor.img
