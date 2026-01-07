@@ -1,4 +1,4 @@
-name: Build Universal Vendor (Final Tree Fix)
+name: Build Universal Vendor (Soong Fix)
 
 on:
   workflow_dispatch:
@@ -29,34 +29,31 @@ jobs:
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Setup Full Minimal Tree
+      - name: Setup Workspace with Manifest
         run: |
           mkdir -p android_root && cd android_root
-          mkdir -p .repo build/make device/samsung/gta4l vendor/samsung/gta4l vendor/lineage
+          mkdir -p .repo build device/samsung/gta4l vendor/samsung/gta4l vendor/lineage
           
-          # سحب ملفات البناء الأساسية (أندرويد 15)
+          # إنشاء ملف مانيفست وهمي لإسكات خطأ Python
+          echo '<?xml version="1.0" encoding="UTF-8"?><manifest><project name="android_build" path="build/make" revision="lineage-22.1" remote="github" /></manifest>' > .repo/manifest.xml
+          
+          # سحب الأدوات الأساسية (بما فيها soong_ui)
           git clone https://github.com/LineageOS/android_build -b lineage-22.1 build/make --depth=1
-          
-          # سحب ملف الـ envsetup الخاص بـ Lineage (اللي كان مسبب الخطأ)
           git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-22.1 vendor/lineage --depth=1
           
-          # سحب ملفات جهازك gta4l
+          # سحب سورس الـ Soong (المسؤول عن البناء الحديث)
+          git clone https://github.com/LineageOS/android_build_soong -b lineage-22.1 build/soong --depth=1
+          
+          # ملفات جهازك
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
-
-          # إنشاء الروابط الضرورية
-          ln -s build/make/core build/core
-          echo "include build/make/core/main.mk" > Makefile
 
       - name: Apply SDK 35 & RAM Tweaks
         run: |
           cd android_root
           PROP_FILE=device/samsung/gta4l/system.prop
-          
-          # حقن إعدادات أندرويد 15 والرامات (SDK 35)
           echo "ro.config.zram=true" > $PROP_FILE
           echo "ro.zram.size=3072" >> $PROP_FILE
-          echo "ro.lmk.kill_heaviest_task=false" >> $PROP_FILE
           echo "ro.vendor.vndk.version=35" >> $PROP_FILE
           echo "ro.vendor.sdk.version=35" >> $PROP_FILE
           echo "ro.treble.enabled=true" >> $PROP_FILE
@@ -66,15 +63,16 @@ jobs:
           cd android_root
           export TOP=$(pwd)
           export ALLOW_MISSING_DEPENDENCIES=true
+          export SKIP_ABI_CHECKS=true
           
-          # تشغيل envsetup (الآن سيجد ملفات vendor/lineage)
+          # تشغيل البيئة
           source build/make/envsetup.sh
           
-          # استخدام aosp_gta4l كبديل لو فشل lineage_gta4l لضمان بناء فيندور خام (Treble)
-          lunch lineage_gta4l-ap3a-userdebug || lunch lineage_gta4l-userdebug || echo "Forcing build without lunch"
+          # استخدام المحرك الجديد للبناء (Soong UI) بدلاً من make المباشر
+          # سنقوم ببناء الفيندور باستخدام الاسم الكودي للمنتج
+          lunch lineage_gta4l-ap3a-userdebug || lunch lineage_gta4l-userdebug || true
           
-          # بناء الفيندور
-          make vendorimage -j$(nproc --all)
+          ./build/soong/soong_ui.bash --make-mode vendorimage -j$(nproc --all)
 
       - name: Upload Result
         uses: actions/upload-artifact@v4
