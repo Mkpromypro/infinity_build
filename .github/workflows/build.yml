@@ -1,3 +1,33 @@
+name: Build Universal Vendor for gta4l
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Maximize Build Space
+        uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 1024
+          swap-size-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
+      - name: Setup Build Environment
+        run: |
+          sudo apt update
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev libncurses6
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          sudo ln -sf ~/bin/repo /usr/bin/repo
+
       - name: Build Vendor Image
         run: |
           git config --global user.email "tabmohamedpro@gmail.com"
@@ -7,21 +37,23 @@
           mkdir -p build && cd build
           repo init -u https://github.com/Infinity-X-Project/manifest.git -b 15 --depth=1
           
-          # سحب ملفات الهاردوير
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-22.1 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-22.1 vendor/samsung/gta4l --depth=1
           git clone https://github.com/LineageOS/android_kernel_samsung_gta4l -b lineage-22.1 kernel/samsung/gta4l --depth=1
 
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1
           
-          # === حقن تعديلات الرامات (RAM FIX) ===
-          # 1. تفعيل ZRAM بحجم 3 جيجا وضغط LZ4
+          # حقن تعديلات الرامات مباشرة في ملفات السورس
           echo "ro.zram.mark_idle_delay_mins=60" >> device/samsung/gta4l/system.prop
           echo "ro.config.zram=true" >> device/samsung/gta4l/system.prop
-          
-          # 2. تعديل الـ Low Memory Killer ليكون أقل عدوانية
           sed -i 's/ro.lmk.kill_heaviest_task=true/ro.lmk.kill_heaviest_task=false/g' device/samsung/gta4l/rootdir/etc/init.qcom.rc || true
           
           source build/envsetup.sh
           lunch infinity_gta4l-ap3a-userdebug
           mka vendorimage -j$(nproc --all)
+
+      - name: Upload Vendor
+        uses: actions/upload-artifact@v4
+        with:
+          name: Universal-Vendor-gta4l
+          path: build/out/target/product/gta4l/vendor.img
