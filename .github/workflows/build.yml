@@ -3,9 +3,6 @@ name: Build Universal Vendor (Android 15 SDK 35)
 on:
   workflow_dispatch:
 
-env:
-  TZ: Africa/Cairo
-
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -32,56 +29,42 @@ jobs:
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Create Build Directory
-        run: |
-          mkdir -p /home/runner/work/workspace
-          echo "BUILD_ROOT=/home/runner/work/workspace" >> $GITHUB_ENV
-
       - name: Clone Essential Trees
         run: |
-          cd ${{ env.BUILD_ROOT }}
-          # استخدام فروع الـ Build المتوافقة مع أندرويد 15
+          mkdir -p workspace && cd workspace
+          git config --global user.email "bot@example.com"
+          git config --global user.name "BuildBot"
+          
+          # سحب فروع أندرويد 15 و 14 المتاحة
           git clone https://github.com/LineageOS/android_build -b lineage-22.1 build --depth=1
           git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-22.1 vendor/lineage --depth=1
-          
-          # ملفات الجهاز (سنستخدم فرع 21 ونقوم بترقيته يدوياً في الخطوة القادمة)
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
 
           echo "include build/make/core/main.mk" > Makefile
 
-      - name: Upgrade Device Tree to SDK 35 & RAM Fix
+      - name: Apply SDK 35 & RAM Fixes
         run: |
-          cd ${{ env.BUILD_ROOT }}
+          cd workspace
           PROP_FILE=device/samsung/gta4l/system.prop
           mkdir -p $(dirname $PROP_FILE)
           
-          # إعدادات الرام القوية لمنع قتل التطبيقات
-          cat <<EOF > $PROP_FILE
-# RAM Optimization
-ro.config.zram=true
-ro.zram.size=3072
-ro.zram.mark_idle_delay_mins=60
-ro.lmk.kill_heaviest_task=false
-ro.lmk.use_psi=true
-ro.sys.fw.bg_apps_limit=32
-# Android 15 SDK 35 Support
-ro.treble.enabled=true
-ro.vendor.vndk.version=35
-ro.vndk.version=35
-ro.vendor.sdk.version=35
-ro.product.first_api_level=30
-EOF
-
-          # ترقية الـ BoardConfig ليقبل أندرويد 15
-          BOARD_CONFIG=device/samsung/gta4l/BoardConfig.mk
-          sed -i 's/BOARD_VNDK_VERSION := .*/BOARD_VNDK_VERSION := current/g' $BOARD_CONFIG || true
+          # مسح أي محتوى قديم وكتابة الإعدادات الجديدة (SDK 35)
+          echo "ro.config.zram=true" > $PROP_FILE
+          echo "ro.zram.size=3072" >> $PROP_FILE
+          echo "ro.zram.mark_idle_delay_mins=60" >> $PROP_FILE
+          echo "ro.lmk.kill_heaviest_task=false" >> $PROP_FILE
+          echo "ro.lmk.use_psi=true" >> $PROP_FILE
+          echo "ro.sys.fw.bg_apps_limit=32" >> $PROP_FILE
+          echo "ro.treble.enabled=true" >> $PROP_FILE
+          echo "ro.vendor.vndk.version=35" >> $PROP_FILE
+          echo "ro.vndk.version=35" >> $PROP_FILE
+          echo "ro.vendor.sdk.version=35" >> $PROP_FILE
 
       - name: Build Vendor Image
         run: |
-          cd ${{ env.BUILD_ROOT }}
+          cd workspace
           export ALLOW_MISSING_DEPENDENCIES=true
-          # إجبار النظام على تجاهل فحص النسخة القديمة
           export SKIP_ABI_CHECKS=true
           source build/envsetup.sh
           lunch lineage_gta4l-userdebug || echo "Lunch manual fallback"
@@ -91,4 +74,4 @@ EOF
         uses: actions/upload-artifact@v4
         with:
           name: Universal-Vendor-gta4l-SDK35
-          path: /home/runner/work/workspace/out/target/product/gta4l/vendor.img
+          path: workspace/out/target/product/gta4l/vendor.img
