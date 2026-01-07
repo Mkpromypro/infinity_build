@@ -1,4 +1,4 @@
-name: Infinity-X Build gta4l (Optimized)
+name: Build Universal Vendor for gta4l
 
 on:
   workflow_dispatch:
@@ -14,50 +14,44 @@ jobs:
         uses: easimon/maximize-build-space@v10
         with:
           root-reserve-mb: 1024
-          temp-reserve-mb: 100
           swap-size-mb: 2048
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
 
       - name: Setup Build Environment
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev lib32ncurses5-dev lib32stdc++6 libncurses5
+          # تم تعديل الحزم لتناسب Ubuntu 24.04 وتجنب الخطأ السابق
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev libncurses6
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod a+x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Build ROM
+      - name: Build Vendor Image
         run: |
           git config --global user.email "tabmohamedpro@gmail.com"
           git config --global user.name "Mkpromypro"
-          
-          # إنشاء مجلد البناء
           mkdir -p build && cd build
           
-          # تفعيل خاصية الـ Shallow Clone لتوفير مساحة ضخمة
+          # تحميل السورس بأقل مساحة ممكنة
           repo init -u https://github.com/Infinity-X-Project/manifest -b 15 --depth=1
           
-          # إضافة شجرة جهازك (gta4l)
+          # سحب ملفات الهاردوير (Device/Vendor/Kernel)
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-22.1 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-22.1 vendor/samsung/gta4l --depth=1
           git clone https://github.com/LineageOS/android_kernel_samsung_gta4l -b lineage-22.1 kernel/samsung/gta4l --depth=1
 
-          # أمر الـ Sync المعدل لتوفير المساحة
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1
           
-          # بدء الطبخ
           source build/envsetup.sh
           lunch infinity_gta4l-ap3a-userdebug
-          mka bacon
+          # بناء الفيندور فقط لتوفير المساحة وتجنب الـ No Space Left
+          mka vendorimage -j$(nproc --all)
 
-      - name: Upload Artifact
+      - name: Upload Vendor
         uses: actions/upload-artifact@v4
         with:
-          name: Infinity-X-ROM
-          path: build/out/target/product/gta4l/*.zip
-          
+          name: Universal-Vendor-gta4l
+          path: build/out/target/product/gta4l/vendor.img
