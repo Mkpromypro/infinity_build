@@ -1,4 +1,4 @@
-name: Ultra-Fast Low-Space Universal Vendor Dynamic SDK
+name: Ultra-Fast Low-Space Universal Vendor Dynamic SDK (Fixed build.prop)
 
 on:
   workflow_dispatch:
@@ -72,41 +72,52 @@ jobs:
       - name: Apply Universal Vendor Enhancements
         run: |
           cd $BUILD_DIR
+          VENDOR_PATH=vendor/samsung/gta4l
 
-          # RAM / ZRAM / LMKD / low_ram for 3GB devices
-          cat <<EOF >> vendor/build.prop
-          ro.zram.enabled=true
-          ro.zram.size=1536
-          ro.zram.mark_idle_delay_mins=20
-          ro.lmk.use_psi=true
-          ro.lmk.kill_heaviest_task=false
-          ro.lmk.psi_complete_stall_ms=120
-          ro.lmk.psi_partial_stall_ms=70
-          ro.lmk.thrashing_limit=25
-          ro.lmk.thrashing_limit_decay=8
-          ro.config.low_ram=true
-          ro.sys.fw.bg_apps_limit=20
-          EOF
+          # تأكد إن build.prop موجود أو اعمل واحد جديد
+          if [ -f $VENDOR_PATH/build.prop ]; then
+              BUILD_PROP=$VENDOR_PATH/build.prop
+          else
+              mkdir -p $VENDOR_PATH
+              BUILD_PROP=$VENDOR_PATH/build.prop
+              touch $BUILD_PROP
+          fi
+
+          # RAM / ZRAM / LMKD / low_ram للأجهزة 3GB
+          cat <<EOF >> $BUILD_PROP
+ro.zram.enabled=true
+ro.zram.size=1536
+ro.zram.mark_idle_delay_mins=20
+ro.lmk.use_psi=true
+ro.lmk.kill_heaviest_task=false
+ro.lmk.psi_complete_stall_ms=120
+ro.lmk.psi_partial_stall_ms=70
+ro.lmk.thrashing_limit=25
+ro.lmk.thrashing_limit_decay=8
+ro.config.low_ram=true
+ro.sys.fw.bg_apps_limit=20
+EOF
 
           # Treble + VNDK + Dynamic SDK
-          cat <<EOF >> vendor/build.prop
-          ro.treble.enabled=true
-          ro.vendor.vndk.version=${ro.vendor.vndk.version}
-          ro.vndk.version=${ro.vndk.version}
-          ro.product.vndk.version=${ro.product.vndk.version}
-          ro.vendor.sdk.version=${ro.vendor.sdk.version}
-          ro.board.first_api_level=${ro.board.first_api_level}
-          EOF
+          cat <<EOF >> $BUILD_PROP
+ro.treble.enabled=true
+ro.vendor.vndk.version=${ro.vendor.vndk.version}
+ro.vndk.version=${ro.vndk.version}
+ro.product.vndk.version=${ro.product.vndk.version}
+ro.vendor.sdk.version=${ro.vendor.sdk.version}
+ro.board.first_api_level=${ro.board.first_api_level}
+EOF
 
-          # Remove lineage/evolution branding
-          sed -i '/lineage\./d;/evolution\./d' vendor/build.prop || true
+          # إزالة أي branding من lineage/evolution
+          sed -i '/lineage\./d;/evolution\./d' $BUILD_PROP || true
 
-          # FSTAB safe for any GSI
-          mkdir -p vendor/etc || true
-          touch vendor/etc/fstab.qcom
-          sed -i 's|/dev/block/.*system|system|g' vendor/etc/fstab.qcom || true
-          sed -i 's|/dev/block/.*vendor|vendor|g' vendor/etc/fstab.qcom || true
-          sed -i 's|/dev/block/.*product|product|g' vendor/etc/fstab.qcom || true
+          # FSTAB safe لأي GSI
+          mkdir -p $VENDOR_PATH/etc || true
+          FSTAB_FILE=$VENDOR_PATH/etc/fstab.qcom
+          touch $FSTAB_FILE
+          sed -i 's|/dev/block/.*system|system|g' $FSTAB_FILE || true
+          sed -i 's|/dev/block/.*vendor|vendor|g' $FSTAB_FILE || true
+          sed -i 's|/dev/block/.*product|product|g' $FSTAB_FILE || true
 
       # ===== Build Vendor Image =====
       - name: Build Vendor Image
