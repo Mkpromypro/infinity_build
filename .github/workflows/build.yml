@@ -1,63 +1,107 @@
-name: Build Universal Vendor (Master Branch Fix)
+name: Build Universal Vendor (Final Rescue)
 
 on:
   workflow_dispatch:
 
+env:
+  TZ: Africa/Cairo
+  BUILD_DIR: $HOME/workspace
+
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
+
     steps:
+      # ===== Maximize Disk Space =====
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@v10
         with:
-          root-reserve-mb: 1024
+          root-reserve-mb: 512
           swap-size-mb: 8192
-          remove-dotnet: 'true'
-          remove-android: 'true'
+          remove-dotnet: true
+          remove-android: true
 
+      # ===== Install Dependencies =====
       - name: Install Build Tools
         run: |
           sudo apt update
-          sudo apt install -y git python3 curl bc bison build-essential flex g++-multilib gcc-multilib gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev libncurses6
+          sudo apt install -y git python3 curl bc bison build-essential \
+            flex g++-multilib gcc-multilib gnupg gperf libxml2 \
+            libxml2-utils lzop pngcrush rsync schedtool \
+            squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev \
+            libncurses6
           mkdir -p ~/bin
           curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod +x ~/bin/repo
+          sudo ln -sf ~/bin/repo /usr/bin/repo
 
+      # ===== Cleanup Disk Space =====
+      - name: Cleanup Disk Space
+        run: |
+          sudo rm -rf ~/.cache/*
+          df -h
+
+      # ===== Create Build Directory =====
+      - name: Create Build Directory
+        run: |
+          mkdir -p $BUILD_DIR
+          cd $BUILD_DIR
+          pwd
+
+      # ===== Clone Essential Trees =====
       - name: Clone Essential Trees
         run: |
-          mkdir -p workspace && cd workspace
-          # استخدام الفروع الأساسية المضمونة (Master/Main) لتجنب الخطأ 128
-          git clone https://github.com/LineageOS/android_build -b lineage-21.0 build --depth=1 || git clone https://github.com/LineageOS/android_build build --depth=1
-          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-21.0 vendor/lineage --depth=1 || git clone https://github.com/LineageOS/android_vendor_lineage vendor/lineage --depth=1
+          cd $BUILD_DIR
+          # Build system
+          git clone https://github.com/LineageOS/android_build -b lineage-22.2 build --depth=1
+          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-22.2 vendor/lineage --depth=1
           
-          # سحب ملفات جهازك gta4l
-          git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
-          git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
+          # Device and vendor
+          git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-22.2 device/samsung/gta4l --depth=1
+          git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-22.2 vendor/samsung/gta4l --depth=1
 
-      - name: Apply RAM & Treble Tweaks
+      # ===== Apply RAM & Treble Fixes =====
+      - name: Apply RAM & Treble Fixes
         run: |
-          cd workspace
-          # ضبط إعدادات الذاكرة لمنع القتل العنيف للتطبيقات
+          cd $BUILD_DIR
           PROP_FILE=device/samsung/gta4l/system.prop
-          [ -f $PROP_FILE ] || touch $PROP_FILE
-          echo "ro.config.zram=true" >> $PROP_FILE
-          echo "ro.lmk.kill_heaviest_task=false" >> $PROP_FILE
-          echo "ro.zram.mark_idle_delay_mins=60" >> $PROP_FILE
-          echo "ro.treble.enabled=true" >> $PROP_FILE
-          # إجبار النظام على التعامل مع تعريفات أندرويد 15
-          echo "ro.vendor.vndk.version=35" >> $PROP_FILE
+          
+          # تأكد من وجود الملف
+          mkdir -p $(dirname $PROP_FILE)
+          touch $PROP_FILE
+          
+          # RAM / ZRAM / LMKD / Low-RAM Tweaks
+          cat <<'EOF' >> $PROP_FILE
+ro.config.zram=true
+ro.zram.size=1536
+ro.zram.mark_idle_delay_mins=60
+ro.lmk.kill_heaviest_task=false
+ro.lmk.use_psi=true
+ro.sys.fw.bg_apps_limit=20
+EOF
 
+          # Treble + VNDK + Dynamic SDK
+          cat <<'EOF' >> $PROP_FILE
+ro.treble.enabled=true
+ro.vendor.vndk.version=15
+ro.vndk.version=15
+ro.product.vndk.version=15
+ro.vendor.sdk.version=15
+ro.board.first_api_level=33
+EOF
+
+      # ===== Build Vendor Image =====
       - name: Build Vendor Image
         run: |
-          cd workspace
+          cd $BUILD_DIR
           export ALLOW_MISSING_DEPENDENCIES=true
-          # بناء الفيندور فقط لتوفير المساحة
           source build/envsetup.sh
-          lunch lineage_gta4l-userdebug || echo "Lunch fallback"
+          lunch lineage_gta4l-userdebug || echo "Lunch failed but continuing..."
           make vendorimage -j$(nproc --all)
 
+      # ===== Upload Vendor Image =====
       - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
           name: Universal-Vendor-gta4l
-          path: workspace/out/target/product/gta4l/vendor.img
+          path: $BUILD_DIR/out/target/product/gta4l/vendor.img
