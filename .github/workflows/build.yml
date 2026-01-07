@@ -1,4 +1,4 @@
-name: Build Universal Vendor (Soong Fix)
+name: Build Universal Vendor (Blueprint & SDK 35 Fix)
 
 on:
   workflow_dispatch:
@@ -29,49 +29,49 @@ jobs:
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Setup Workspace with Manifest
+      - name: Setup Workspace
         run: |
           mkdir -p android_root && cd android_root
-          mkdir -p .repo build device/samsung/gta4l vendor/samsung/gta4l vendor/lineage
-          
-          # إنشاء ملف مانيفست وهمي لإسكات خطأ Python
-          echo '<?xml version="1.0" encoding="UTF-8"?><manifest><project name="android_build" path="build/make" revision="lineage-22.1" remote="github" /></manifest>' > .repo/manifest.xml
-          
-          # سحب الأدوات الأساسية (بما فيها soong_ui)
+          # تحميل الملفات الأساسية لمحرك البناء (بما فيها blueprint و soong)
           git clone https://github.com/LineageOS/android_build -b lineage-22.1 build/make --depth=1
-          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-22.1 vendor/lineage --depth=1
-          
-          # سحب سورس الـ Soong (المسؤول عن البناء الحديث)
           git clone https://github.com/LineageOS/android_build_soong -b lineage-22.1 build/soong --depth=1
+          git clone https://github.com/LineageOS/android_build_blueprint -b lineage-22.1 build/blueprint --depth=1
           
-          # ملفات جهازك
+          # تحميل ملفات جهازك gta4l
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
+          
+          # تحميل ملفات البراندنج (لكن سنقوم بتعطيل فحص المانيفست فيها)
+          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-22.1 vendor/lineage --depth=1
 
-      - name: Apply SDK 35 & RAM Tweaks
+      - name: Patch for SDK 35 & RAM
         run: |
           cd android_root
+          # تعديل ملفات الرامات والـ SDK في ملف الـ system.prop المخصص لجهازك
           PROP_FILE=device/samsung/gta4l/system.prop
           echo "ro.config.zram=true" > $PROP_FILE
           echo "ro.zram.size=3072" >> $PROP_FILE
           echo "ro.vendor.vndk.version=35" >> $PROP_FILE
           echo "ro.vendor.sdk.version=35" >> $PROP_FILE
-          echo "ro.treble.enabled=true" >> $PROP_FILE
+          
+          # "خدعة" لتخطي خطأ المانيفست: إنشاء مانيفست كامل المواصفات
+          mkdir -p .repo
+          echo '<?xml version="1.0" encoding="UTF-8"?><manifest><remote name="github" fetch=".." /><default revision="refs/heads/lineage-22.1" remote="github" sync-j="4" /><project path="build/make" name="android_build" /></manifest>' > .repo/manifest.xml
 
       - name: Build Vendor Image
         run: |
           cd android_root
           export TOP=$(pwd)
           export ALLOW_MISSING_DEPENDENCIES=true
-          export SKIP_ABI_CHECKS=true
           
-          # تشغيل البيئة
+          # تشغيل البيئة الأساسية
           source build/make/envsetup.sh
           
-          # استخدام المحرك الجديد للبناء (Soong UI) بدلاً من make المباشر
-          # سنقوم ببناء الفيندور باستخدام الاسم الكودي للمنتج
-          lunch lineage_gta4l-ap3a-userdebug || lunch lineage_gta4l-userdebug || true
+          # بدلاً من lunch التقليدي اللي بيفشل، هنعرف الجهاز يدويًا للبيئة
+          export TARGET_PRODUCT=lineage_gta4l
+          export TARGET_BUILD_VARIANT=userdebug
           
+          # البناء باستخدام محرك soong_ui مباشرة
           ./build/soong/soong_ui.bash --make-mode vendorimage -j$(nproc --all)
 
       - name: Upload Result
