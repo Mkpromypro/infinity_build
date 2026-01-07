@@ -22,7 +22,6 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt update
-          # تم تعديل الحزم لتناسب Ubuntu 24.04 وتجنب الخطأ السابق
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev libncurses6
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
@@ -33,12 +32,15 @@ jobs:
         run: |
           git config --global user.email "tabmohamedpro@gmail.com"
           git config --global user.name "Mkpromypro"
+          # إضافة حل لمشكلة الـ Git Authentication
+          git config --global http.postBuffer 524288000
+          
           mkdir -p build && cd build
           
-          # تحميل السورس بأقل مساحة ممكنة
-          repo init -u https://github.com/Infinity-X-Project/manifest -b 15 --depth=1
+          # استخدام رابط HTTPS المباشر لتجنب مشاكل التصريح
+          repo init -u https://github.com/Infinity-X-Project/manifest.git -b 15 --depth=1
           
-          # سحب ملفات الهاردوير (Device/Vendor/Kernel)
+          # سحب ملفات الهاردوير الخاصة بجهازك
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-22.1 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-22.1 vendor/samsung/gta4l --depth=1
           git clone https://github.com/LineageOS/android_kernel_samsung_gta4l -b lineage-22.1 kernel/samsung/gta4l --depth=1
@@ -47,7 +49,8 @@ jobs:
           
           source build/envsetup.sh
           lunch infinity_gta4l-ap3a-userdebug
-          # بناء الفيندور فقط لتوفير المساحة وتجنب الـ No Space Left
+          
+          # بناء الفيندور فقط لضمان توفير المساحة
           mka vendorimage -j$(nproc --all)
 
       - name: Upload Vendor
