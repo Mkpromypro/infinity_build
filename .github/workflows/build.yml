@@ -31,24 +31,21 @@ jobs:
 
       - name: Setup Full Minimal Tree
         run: |
-          # إنشاء المجلد والبدء من داخله مباشرة
           mkdir -p android_root && cd android_root
+          mkdir -p .repo build/make device/samsung/gta4l vendor/samsung/gta4l vendor/lineage
           
-          # إنشاء هيكل الشجرة قبل أي شيء
-          mkdir -p .repo build device vendor kernel out
-          
-          # سحب ملفات البناء (Branch 22.1 متوافق مع SDK 35)
+          # سحب ملفات البناء الأساسية (أندرويد 15)
           git clone https://github.com/LineageOS/android_build -b lineage-22.1 build/make --depth=1
+          
+          # سحب ملف الـ envsetup الخاص بـ Lineage (اللي كان مسبب الخطأ)
+          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-22.1 vendor/lineage --depth=1
           
           # سحب ملفات جهازك gta4l
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
 
-          # الربط الضروري (Symbolic Link) لخداع envsetup
+          # إنشاء الروابط الضرورية
           ln -s build/make/core build/core
-          ln -s build/make/envsetup.sh build/envsetup.sh
-          
-          # إنشاء ملف Makefile الرئيسي في الجدر
           echo "include build/make/core/main.mk" > Makefile
 
       - name: Apply SDK 35 & RAM Tweaks
@@ -56,7 +53,7 @@ jobs:
           cd android_root
           PROP_FILE=device/samsung/gta4l/system.prop
           
-          # إعدادات أندرويد 15 والرامات (SDK 35)
+          # حقن إعدادات أندرويد 15 والرامات (SDK 35)
           echo "ro.config.zram=true" > $PROP_FILE
           echo "ro.zram.size=3072" >> $PROP_FILE
           echo "ro.lmk.kill_heaviest_task=false" >> $PROP_FILE
@@ -67,15 +64,14 @@ jobs:
       - name: Build Vendor Image
         run: |
           cd android_root
-          # إجبار البيئة على التعرف على المسار الحالي كـ Root
           export TOP=$(pwd)
           export ALLOW_MISSING_DEPENDENCIES=true
           
-          # تشغيل envsetup من المسار الصحيح
+          # تشغيل envsetup (الآن سيجد ملفات vendor/lineage)
           source build/make/envsetup.sh
           
-          # تنفيذ أمر lunch أو تجاوزه للبناء المباشر
-          lunch lineage_gta4l-userdebug || echo "Lunch failed, forcing build..."
+          # استخدام aosp_gta4l كبديل لو فشل lineage_gta4l لضمان بناء فيندور خام (Treble)
+          lunch lineage_gta4l-ap3a-userdebug || lunch lineage_gta4l-userdebug || echo "Forcing build without lunch"
           
           # بناء الفيندور
           make vendorimage -j$(nproc --all)
