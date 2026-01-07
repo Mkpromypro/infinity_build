@@ -1,4 +1,4 @@
-name: Universal Vendor 14-16 / Evolution X / GSI Compatible
+name: Ultra-Fast Low-Space Universal Vendor 14-16 / Evolution X / GSI
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ jobs:
           remove-android: true
           remove-haskell: true
 
-      - name: Install Build Dependencies
+      - name: Install Dependencies
         run: |
           sudo apt update
           sudo apt install -y bc bison build-essential ccache curl flex \
@@ -58,14 +58,19 @@ jobs:
           cd $BUILD_DIR
           pwd
 
-      - name: Clone Minimal Device + Vendor + Kernel
+      - name: Clone Minimal Device / Vendor / Kernel (Token)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd $BUILD_DIR
-          git clone https://github.com/LineageOS/android_device_samsung_gta4l \
+          # Device tree
+          git clone https://$GITHUB_TOKEN@github.com/LineageOS/android_device_samsung_gta4l \
             -b lineage-22.1 device/samsung/gta4l --depth=1
-          git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l \
+          # Vendor blobs
+          git clone https://$GITHUB_TOKEN@github.com/TheMuppets/proprietary_vendor_samsung_gta4l \
             -b lineage-22.1 vendor/samsung/gta4l --depth=1
-          git clone https://github.com/LineageOS/android_kernel_samsung_gta4l \
+          # Kernel
+          git clone https://$GITHUB_TOKEN@github.com/LineageOS/android_kernel_samsung_gta4l \
             -b lineage-22.1 kernel/samsung/gta4l --depth=1
 
       - name: Apply Universal Vendor Enhancements
@@ -73,7 +78,7 @@ jobs:
           cd $BUILD_DIR
           SDK=${{ github.event.inputs.TARGET_SDK }}
 
-          # ===== RAM Optimization for 3GB devices =====
+          # RAM / ZRAM / LMKD / low_ram
           cat <<EOF >> vendor/build.prop
           ro.zram.enabled=true
           ro.zram.size=1536
@@ -88,7 +93,7 @@ jobs:
           ro.sys.fw.bg_apps_limit=20
           EOF
 
-          # ===== Treble + VNDK + SDK dynamic =====
+          # Treble + VNDK + dynamic SDK
           cat <<EOF >> vendor/build.prop
           ro.treble.enabled=true
           ro.vendor.vndk.version=$SDK
@@ -98,10 +103,10 @@ jobs:
           ro.board.first_api_level=$((SDK-5))
           EOF
 
-          # Remove lineage/evolution branding
+          # Remove branding
           sed -i '/lineage\./d;/evolution\./d' vendor/build.prop || true
 
-          # ===== FSTAB Sanitization (GSI Safe) =====
+          # FSTAB safe for any GSI
           mkdir -p vendor/etc || true
           touch vendor/etc/fstab.qcom
           sed -i 's|/dev/block/.*system|system|g' vendor/etc/fstab.qcom || true
@@ -121,5 +126,5 @@ jobs:
       - name: Upload Vendor Image
         uses: actions/upload-artifact@v4
         with:
-          name: Universal-Vendor-gta4l-SDK${{ github.event.inputs.TARGET_SDK }}
+          name: UltraFast-LowSpace-Vendor-gta4l-SDK${{ github.event.inputs.TARGET_SDK }}
           path: $BUILD_DIR/out/target/product/gta4l/vendor.img
