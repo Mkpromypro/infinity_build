@@ -1,28 +1,27 @@
       - name: Build Vendor Image
         run: |
-          # إعدادات الهوية
           git config --global user.email "tabmohamedpro@gmail.com"
           git config --global user.name "Mkpromypro"
-          
-          # إجبار Git على استخدام الـ HTTPS بدون طلب كلمة سر
           git config --global url."https://github.com/".insteadOf git@github.com:
-          git config --global http.postBuffer 524288000
           
           mkdir -p build && cd build
-          
-          # استخدام رابط الـ .git المباشر وهو الحل الأضمن
           repo init -u https://github.com/Infinity-X-Project/manifest.git -b 15 --depth=1
           
-          # سحب ملفات جهازك gta4l
+          # سحب ملفات الهاردوير
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-22.1 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-22.1 vendor/samsung/gta4l --depth=1
           git clone https://github.com/LineageOS/android_kernel_samsung_gta4l -b lineage-22.1 kernel/samsung/gta4l --depth=1
 
-          # أمر Sync قوي جداً لتوفير المساحة وتخطي الأخطاء
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1
+          
+          # === حقن تعديلات الرامات (RAM FIX) ===
+          # 1. تفعيل ZRAM بحجم 3 جيجا وضغط LZ4
+          echo "ro.zram.mark_idle_delay_mins=60" >> device/samsung/gta4l/system.prop
+          echo "ro.config.zram=true" >> device/samsung/gta4l/system.prop
+          
+          # 2. تعديل الـ Low Memory Killer ليكون أقل عدوانية
+          sed -i 's/ro.lmk.kill_heaviest_task=true/ro.lmk.kill_heaviest_task=false/g' device/samsung/gta4l/rootdir/etc/init.qcom.rc || true
           
           source build/envsetup.sh
           lunch infinity_gta4l-ap3a-userdebug
-          
-          # بناء الفيندور فقط لضمان عدم امتلاء المساحة
           mka vendorimage -j$(nproc --all)
