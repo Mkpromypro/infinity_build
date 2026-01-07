@@ -1,4 +1,4 @@
-name: Build Universal Vendor (Root Tree Fix)
+name: Build Universal Vendor (Final Tree Fix)
 
 on:
   workflow_dispatch:
@@ -29,30 +29,34 @@ jobs:
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Setup Workspace & Mock Root
+      - name: Setup Full Minimal Tree
         run: |
-          mkdir -p workspace && cd workspace
-          # إنشاء ملفات وهمية لإقناع envsetup إننا في Root
-          touch buildspec.mk
-          mkdir -p .repo
+          # إنشاء المجلد والبدء من داخله مباشرة
+          mkdir -p android_root && cd android_root
           
-          # سحب ملفات البناء الأساسية (ضروري جداً لـ envsetup)
-          git clone https://github.com/LineageOS/android_build -b lineage-22.1 build --depth=1
-          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-22.1 vendor/lineage --depth=1
+          # إنشاء هيكل الشجرة قبل أي شيء
+          mkdir -p .repo build device vendor kernel out
+          
+          # سحب ملفات البناء (Branch 22.1 متوافق مع SDK 35)
+          git clone https://github.com/LineageOS/android_build -b lineage-22.1 build/make --depth=1
           
           # سحب ملفات جهازك gta4l
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
 
-          # إنشاء Makefile في الـ Root (حل مشكلة الـ Tree)
+          # الربط الضروري (Symbolic Link) لخداع envsetup
+          ln -s build/make/core build/core
+          ln -s build/make/envsetup.sh build/envsetup.sh
+          
+          # إنشاء ملف Makefile الرئيسي في الجدر
           echo "include build/make/core/main.mk" > Makefile
 
       - name: Apply SDK 35 & RAM Tweaks
         run: |
-          cd workspace
+          cd android_root
           PROP_FILE=device/samsung/gta4l/system.prop
           
-          # حقن إعدادات أندرويد 15 والرامات
+          # إعدادات أندرويد 15 والرامات (SDK 35)
           echo "ro.config.zram=true" > $PROP_FILE
           echo "ro.zram.size=3072" >> $PROP_FILE
           echo "ro.lmk.kill_heaviest_task=false" >> $PROP_FILE
@@ -62,20 +66,22 @@ jobs:
 
       - name: Build Vendor Image
         run: |
-          cd workspace
-          # تعريف المتغيرات يدويًا لضمان تخطي فحص الـ Tree
+          cd android_root
+          # إجبار البيئة على التعرف على المسار الحالي كـ Root
           export TOP=$(pwd)
           export ALLOW_MISSING_DEPENDENCIES=true
-          source build/envsetup.sh
           
-          # محاولة اختيار الهدف (Lunch)
-          lunch lineage_gta4l-userdebug || echo "Proceeding without lunch..."
+          # تشغيل envsetup من المسار الصحيح
+          source build/make/envsetup.sh
           
-          # بناء الفيندور مباشرة
+          # تنفيذ أمر lunch أو تجاوزه للبناء المباشر
+          lunch lineage_gta4l-userdebug || echo "Lunch failed, forcing build..."
+          
+          # بناء الفيندور
           make vendorimage -j$(nproc --all)
 
       - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
           name: Universal-Vendor-gta4l-SDK35
-          path: workspace/out/target/product/gta4l/vendor.img
+          path: android_root/out/target/product/gta4l/vendor.img
