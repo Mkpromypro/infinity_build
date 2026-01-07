@@ -1,4 +1,4 @@
-name: Universal Vendor SDK35 PRO (AOSP / GSI / EvolutionX)
+name: Universal Vendor SDK35 PRO (Evolution X / GSI)
 
 on:
   workflow_dispatch:
@@ -21,8 +21,8 @@ jobs:
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@v10
         with:
-          root-reserve-mb: 1024
-          swap-size-mb: 4096
+          root-reserve-mb: 512
+          swap-size-mb: 8192
           remove-dotnet: true
           remove-android: true
           remove-haskell: true
@@ -43,10 +43,16 @@ jobs:
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Sync AOSP Android 15 (SDK 35)
+      - name: Cleanup Disk Space
+        run: |
+          sudo rm -rf ~/.cache/*
+          df -h
+
+      - name: Sync Minimal Android Source (SDK 35)
         run: |
           mkdir -p build && cd build
 
+          # Minimal AOSP manifest (vendor + device + kernel)
           repo init \
             -u https://android.googlesource.com/platform/manifest \
             -b android-15.0.0_r5 \
@@ -55,9 +61,10 @@ jobs:
           repo sync -c -j$(nproc --all) \
             --force-sync \
             --no-tags \
-            --no-clone-bundle
+            --no-clone-bundle \
+            --depth=1
 
-          # Device / Vendor / Kernel (public)
+          # Clone device/vendor/kernel public repos
           git clone https://github.com/LineageOS/android_device_samsung_gta4l \
             -b lineage-22.1 device/samsung/gta4l --depth=1
 
@@ -70,7 +77,6 @@ jobs:
       - name: Vendor Treble + SDK 35 Hardening
         run: |
           cd build
-
           cat <<EOF >> vendor/build.prop
           # ===== TREBLE / SDK 35 =====
           ro.treble.enabled=true
@@ -81,13 +87,12 @@ jobs:
           ro.board.first_api_level=30
           EOF
 
-          # Remove ROM branding
-          sed -i '/lineage\./d;/evolution\./d;/infinity\./d' vendor/build.prop || true
+          # Remove branding
+          sed -i '/lineage\./d;/evolution\./d' vendor/build.prop || true
 
       - name: RAM Optimization (3GB Devices)
         run: |
           cd build
-
           cat <<EOF >> vendor/build.prop
           # ===== ZRAM =====
           ro.zram.enabled=true
@@ -124,5 +129,5 @@ jobs:
       - name: Upload Vendor Image
         uses: actions/upload-artifact@v4
         with:
-          name: Universal-Vendor-gta4l-AOSP-SDK35-PRO
+          name: Universal-Vendor-gta4l-Evolution-SDK35-PRO
           path: build/out/target/product/gta4l/vendor.img
