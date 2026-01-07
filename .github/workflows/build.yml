@@ -3,129 +3,101 @@ name: Ultra-Fast Universal Vendor Dynamic SDK
 on:
   workflow_dispatch:
 
-env:
-  TZ: Africa/Cairo
-  USE_CCACHE: 1
-  CCACHE_EXEC: /usr/bin/ccache
-  CCACHE_DIR: ~/.ccache
-  CCACHE_MAXSIZE: 5G
-  BUILD_DIR: $HOME/build
-
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04  # استخدام أحدث نسخة لتجنب مشاكل الحزم
 
     steps:
-      - name: Maximize Disk Space
+      - name: Maximize Build Space
         uses: easimon/maximize-build-space@v10
         with:
           root-reserve-mb: 512
-          swap-size-mb: 8192
-          remove-dotnet: true
-          remove-android: true
-          remove-haskell: true
+          swap-size-mb: 8192  # 8GB Swap ضروري جداً
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
 
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex \
-            g++-multilib gcc-multilib git gnupg gperf libxml2 \
-            libxml2-utils lzop pngcrush rsync schedtool \
-            squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev \
-            libncurses6 python-is-python3
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev libncurses6 python-is-python3
           mkdir -p ~/bin
           curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Cleanup Disk Space
+      - name: Initialize & Sync (Minimal)
         run: |
-          sudo rm -rf ~/.cache/*
-          df -h
+          # إعدادات Git لتجنب مشاكل التصريح
+          git config --global user.email "bot@example.com"
+          git config --global user.name "BuildBot"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          
+          mkdir -p workspace
+          cd workspace
+          
+          # 1. تهيئة المستودع (استخدمنا Infinity-X كقاعدة قوية لأندرويد 15)
+          repo init -u https://github.com/Infinity-X-Project/manifest.git -b 15 --depth=1 --git-lfs
+          
+          # 2. سحب ملفات جهازك يدوياً لضمان وجودها
+          rm -rf device/samsung/gta4l vendor/samsung/gta4l kernel/samsung/gta4l
+          git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-22.1 device/samsung/gta4l --depth=1
+          git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-22.1 vendor/samsung/gta4l --depth=1
+          git clone https://github.com/LineageOS/android_kernel_samsung_gta4l -b lineage-22.1 kernel/samsung/gta4l --depth=1
 
-      - name: Create Build Directory
+          # 3. تحميل ملفات النظام (Sync) - هذه الخطوة هي التي تجعل أمر mka يعمل
+          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1
+
+      - name: Apply Universal Vendor Tweaks (The Magic Fix)
         run: |
-          mkdir -p $BUILD_DIR
-          cd $BUILD_DIR
-          pwd
+          cd workspace
+          # المتغيرات الصحيحة للتعديل هي system.prop وليست build.prop المولد
+          PROP_FILE=device/samsung/gta4l/system.prop
+          
+          echo "Applying RAM & Treble fixes to $PROP_FILE..."
 
-      - name: Checkout Device Tree
-        uses: actions/checkout@v4
-        with:
-          repository: LineageOS/android_device_samsung_gta4l
-          ref: lineage-22.2
-          path: device/samsung/gta4l
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Checkout Vendor Blobs
-        uses: actions/checkout@v4
-        with:
-          repository: TheMuppets/proprietary_vendor_samsung_gta4l
-          ref: lineage-22.2
-          path: vendor/samsung/gta4l
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Apply Universal Vendor Enhancements
-        run: |
-          cd $BUILD_DIR
-          VENDOR_PATH=vendor/samsung/gta4l
-
-          if [ -f $VENDOR_PATH/build.prop ]; then
-            BUILD_PROP=$VENDOR_PATH/build.prop
-          else
-            mkdir -p $VENDOR_PATH
-            BUILD_PROP=$VENDOR_PATH/build.prop
-            touch $BUILD_PROP
-          fi
-
-          # RAM / ZRAM / LMKD / Low-RAM Tweaks
-          cat <<'EOF' >> $BUILD_PROP
-ro.zram.enabled=true
-ro.zram.size=1536
-ro.zram.mark_idle_delay_mins=20
-ro.lmk.use_psi=true
-ro.lmk.kill_heaviest_task=false
-ro.lmk.psi_complete_stall_ms=120
-ro.lmk.psi_partial_stall_ms=70
-ro.lmk.thrashing_limit=25
-ro.lmk.thrashing_limit_decay=8
-ro.config.low_ram=true
-ro.sys.fw.bg_apps_limit=20
-EOF
-
-          # Treble + VNDK + Dynamic SDK
-          cat <<'EOF' >> $BUILD_PROP
-ro.treble.enabled=true
-ro.vendor.vndk.version=15
-ro.vndk.version=15
-ro.product.vndk.version=15
-ro.vendor.sdk.version=15
-ro.board.first_api_level=30
-EOF
-
-          # إزالة أي branding
-          sed -i '/lineage\./d;/evolution\./d' $BUILD_PROP || true
-
-          # FSTAB Safe لأي GSI
-          mkdir -p $VENDOR_PATH/etc
-          FSTAB_FILE=$VENDOR_PATH/etc/fstab.qcom
-          touch $FSTAB_FILE
-          sed -i 's|/dev/block/.*system|system|g' $FSTAB_FILE || true
-          sed -i 's|/dev/block/.*vendor|vendor|g' $FSTAB_FILE || true
-          sed -i 's|/dev/block/.*product|product|g' $FSTAB_FILE || true
+          # --- 1. RAM & ZRAM Optimization ---
+          echo "" >> $PROP_FILE
+          echo "# === Universal Vendor RAM Tweaks ===" >> $PROP_FILE
+          echo "ro.zram.mark_idle_delay_mins=60" >> $PROP_FILE
+          echo "ro.config.zram=true" >> $PROP_FILE
+          # إجبار النظام على استخدام ZRAM بحجم كبير (سيتم تحديده في الـ fstab أو الـ rc لاحقاً)
+          
+          # --- 2. Low Memory Killer Tuning ---
+          # جعل النظام "صبوراً" قبل قتل التطبيقات
+          echo "ro.lmk.kill_heaviest_task=false" >> $PROP_FILE
+          echo "ro.lmk.use_psi=true" >> $PROP_FILE
+          echo "ro.lmk.psi_complete_stall_ms=150" >> $PROP_FILE
+          echo "ro.lmk.psi_partial_stall_ms=70" >> $PROP_FILE
+          echo "ro.config.low_ram=false" >> $PROP_FILE 
+          # جعلناها false لنحصل على مميزات أندرويد الكاملة مع إدارة رام ذكية
+          
+          # --- 3. Treble & VNDK Support ---
+          echo "# === Treble & VNDK ===" >> $PROP_FILE
+          echo "ro.treble.enabled=true" >> $PROP_FILE
+          echo "ro.vendor.vndk.version=35" >> $PROP_FILE
+          echo "ro.vndk.version=35" >> $PROP_FILE
+          
+          # --- 4. FSTAB Injection (Dynamic Partitions) ---
+          # تعديل ملف الـ fstab ليكون متسامحاً (Permissive)
+          # نبحث عن ملف fstab الحقيقي ونعدله
+          find device/samsung/gta4l -name "fstab.*" -exec sed -i 's/,verify//g' {} +
+          find device/samsung/gta4l -name "fstab.*" -exec sed -i 's/,avb//g' {} +
+          find device/samsung/gta4l -name "fstab.*" -exec sed -i 's/forceencrypt/encryptable/g' {} +
 
       - name: Build Vendor Image
         run: |
-          cd $BUILD_DIR
-          export TARGET_PRODUCT=aosp_gta4l
-          export TARGET_BUILD_VARIANT=userdebug
-          export TARGET_BOARD_PLATFORM=ap3a
+          cd workspace
           source build/envsetup.sh
-          lunch aosp_gta4l-ap3a-userdebug
+          # اختيار الهدف الصحيح (تأكد من اسم الـ Lunch في شجرة جهازك)
+          lunch infinity_gta4l-ap3a-userdebug
+          
+          # بناء الفيندور فقط
           mka vendorimage -j$(nproc --all)
 
-      - name: Upload Vendor Image
+      - name: Upload Vendor Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: UltraFast-LowSpace-Universal-Vendor-gta4l-DynamicSDK
-          path: $BUILD_DIR/out/target/product/gta4l/vendor.img
+          name: Universal-Vendor-gta4l-A15
+          path: workspace/out/target/product/gta4l/vendor.img
