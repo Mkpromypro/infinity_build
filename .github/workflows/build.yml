@@ -1,4 +1,4 @@
-name: Build Universal Vendor (Final Rescue)
+name: Build Universal Vendor (Master Branch Fix)
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
       - name: Install Build Tools
         run: |
           sudo apt update
-          sudo apt install -y git python3 curl
+          sudo apt install -y git python3 curl bc bison build-essential flex g++-multilib gcc-multilib gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev libncurses6
           mkdir -p ~/bin
           curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod +x ~/bin/repo
@@ -26,39 +26,38 @@ jobs:
       - name: Clone Essential Trees
         run: |
           mkdir -p workspace && cd workspace
-          # سحب ملفات الـ Build الأساسية (Minimal) عشان أمر lunch يشتغل
-          git clone https://github.com/LineageOS/android_build -b lineage-21 build --depth=1
-          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-21 vendor/lineage --depth=1
+          # استخدام الفروع الأساسية المضمونة (Master/Main) لتجنب الخطأ 128
+          git clone https://github.com/LineageOS/android_build -b lineage-21.0 build --depth=1 || git clone https://github.com/LineageOS/android_build build --depth=1
+          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-21.0 vendor/lineage --depth=1 || git clone https://github.com/LineageOS/android_vendor_lineage vendor/lineage --depth=1
           
-          # سحب ملفات جهازك (الفروع المؤكدة)
+          # سحب ملفات جهازك gta4l
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
 
-      - name: Apply RAM & Treble Fixes
+      - name: Apply RAM & Treble Tweaks
         run: |
           cd workspace
+          # ضبط إعدادات الذاكرة لمنع القتل العنيف للتطبيقات
           PROP_FILE=device/samsung/gta4l/system.prop
-          # حل مشكلة الرامات والقتل العنيف للتطبيقات
+          [ -f $PROP_FILE ] || touch $PROP_FILE
           echo "ro.config.zram=true" >> $PROP_FILE
           echo "ro.lmk.kill_heaviest_task=false" >> $PROP_FILE
           echo "ro.zram.mark_idle_delay_mins=60" >> $PROP_FILE
-          # دعم الـ GSI الحديث (أندرويد 15 و 16)
           echo "ro.treble.enabled=true" >> $PROP_FILE
+          # إجبار النظام على التعامل مع تعريفات أندرويد 15
           echo "ro.vendor.vndk.version=35" >> $PROP_FILE
 
       - name: Build Vendor Image
         run: |
           cd workspace
-          # إعداد البيئة
           export ALLOW_MISSING_DEPENDENCIES=true
+          # بناء الفيندور فقط لتوفير المساحة
           source build/envsetup.sh
-          lunch lineage_gta4l-userdebug || echo "Lunch failed but continuing..."
-          
-          # بناء الفيندور فقط بأمر مباشر يتخطى فحص الكيرنل
+          lunch lineage_gta4l-userdebug || echo "Lunch fallback"
           make vendorimage -j$(nproc --all)
 
       - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
-          name: Universal-Vendor-A7
+          name: Universal-Vendor-gta4l
           path: workspace/out/target/product/gta4l/vendor.img
