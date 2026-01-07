@@ -21,9 +21,6 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@v10
         with:
@@ -58,27 +55,38 @@ jobs:
           cd $BUILD_DIR
           pwd
 
-      - name: Clone Minimal Device / Vendor / Kernel (Token)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cd $BUILD_DIR
-          # Device tree
-          git clone https://$GITHUB_TOKEN@github.com/LineageOS/android_device_samsung_gta4l \
-            -b lineage-22.1 device/samsung/gta4l --depth=1
-          # Vendor blobs
-          git clone https://$GITHUB_TOKEN@github.com/TheMuppets/proprietary_vendor_samsung_gta4l \
-            -b lineage-22.1 vendor/samsung/gta4l --depth=1
-          # Kernel
-          git clone https://$GITHUB_TOKEN@github.com/LineageOS/android_kernel_samsung_gta4l \
-            -b lineage-22.1 kernel/samsung/gta4l --depth=1
+      # ===== Checkout Device / Vendor / Kernel =====
+      - name: Checkout Device Tree
+        uses: actions/checkout@v4
+        with:
+          repository: LineageOS/android_device_samsung_gta4l
+          ref: lineage-22.1
+          path: device/samsung/gta4l
+          token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Checkout Vendor Blobs
+        uses: actions/checkout@v4
+        with:
+          repository: TheMuppets/proprietary_vendor_samsung_gta4l
+          ref: lineage-22.1
+          path: vendor/samsung/gta4l
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout Kernel
+        uses: actions/checkout@v4
+        with:
+          repository: LineageOS/android_kernel_samsung_gta4l
+          ref: lineage-22.1
+          path: kernel/samsung/gta4l
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ===== Apply Universal Vendor Enhancements =====
       - name: Apply Universal Vendor Enhancements
         run: |
           cd $BUILD_DIR
           SDK=${{ github.event.inputs.TARGET_SDK }}
 
-          # RAM / ZRAM / LMKD / low_ram
+          # RAM / ZRAM / LMKD / low_ram for 3GB devices
           cat <<EOF >> vendor/build.prop
           ro.zram.enabled=true
           ro.zram.size=1536
@@ -103,7 +111,7 @@ jobs:
           ro.board.first_api_level=$((SDK-5))
           EOF
 
-          # Remove branding
+          # Remove lineage/evolution branding
           sed -i '/lineage\./d;/evolution\./d' vendor/build.prop || true
 
           # FSTAB safe for any GSI
@@ -113,6 +121,7 @@ jobs:
           sed -i 's|/dev/block/.*vendor|vendor|g' vendor/etc/fstab.qcom || true
           sed -i 's|/dev/block/.*product|product|g' vendor/etc/fstab.qcom || true
 
+      # ===== Build Vendor Image =====
       - name: Build Vendor Image
         run: |
           cd $BUILD_DIR
@@ -123,8 +132,9 @@ jobs:
           lunch aosp_gta4l-ap3a-userdebug || true
           mka vendorimage -j$(nproc --all) || true
 
+      # ===== Upload Vendor Image =====
       - name: Upload Vendor Image
         uses: actions/upload-artifact@v4
         with:
-          name: UltraFast-LowSpace-Vendor-gta4l-SDK${{ github.event.inputs.TARGET_SDK }}
+          name: UltraFast-LowSpace-Universal-Vendor-gta4l-SDK${{ github.event.inputs.TARGET_SDK }}
           path: $BUILD_DIR/out/target/product/gta4l/vendor.img
