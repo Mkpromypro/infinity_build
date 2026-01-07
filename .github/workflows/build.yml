@@ -1,4 +1,4 @@
-name: Ultra-Fast Universal Vendor Dynamic SDK (Corrected)
+name: Ultra-Fast Universal Vendor Dynamic SDK (Fixed)
 
 on:
   workflow_dispatch:
@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      # ===== Maximize Disk Space =====
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@v10
         with:
@@ -26,7 +25,6 @@ jobs:
           remove-android: true
           remove-haskell: true
 
-      # ===== Install Dependencies =====
       - name: Install Dependencies
         run: |
           sudo apt update
@@ -40,20 +38,17 @@ jobs:
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      # ===== Cleanup Disk Space =====
       - name: Cleanup Disk Space
         run: |
           sudo rm -rf ~/.cache/*
           df -h
 
-      # ===== Create Build Directory =====
       - name: Create Build Directory
         run: |
           mkdir -p $BUILD_DIR
           cd $BUILD_DIR
           pwd
 
-      # ===== Checkout Device Tree =====
       - name: Checkout Device Tree
         uses: actions/checkout@v4
         with:
@@ -62,7 +57,6 @@ jobs:
           path: device/samsung/gta4l
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ===== Checkout Vendor Blobs =====
       - name: Checkout Vendor Blobs
         uses: actions/checkout@v4
         with:
@@ -71,23 +65,21 @@ jobs:
           path: vendor/samsung/gta4l
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ===== Apply Universal Vendor Enhancements =====
       - name: Apply Universal Vendor Enhancements
         run: |
           cd $BUILD_DIR
           VENDOR_PATH=vendor/samsung/gta4l
 
-          # تأكد إن build.prop موجود أو اعمل واحد جديد
           if [ -f $VENDOR_PATH/build.prop ]; then
-              BUILD_PROP=$VENDOR_PATH/build.prop
+            BUILD_PROP=$VENDOR_PATH/build.prop
           else
-              mkdir -p $VENDOR_PATH
-              BUILD_PROP=$VENDOR_PATH/build.prop
-              touch $BUILD_PROP
+            mkdir -p $VENDOR_PATH
+            BUILD_PROP=$VENDOR_PATH/build.prop
+            touch $BUILD_PROP
           fi
 
-          # ===== RAM / ZRAM / LMKD / Low-RAM Tweaks =====
-          cat <<'EOF' >> $BUILD_PROP
+          # RAM / ZRAM / LMKD / Low-RAM Tweaks
+          cat <<EOF >> $BUILD_PROP
 ro.zram.enabled=true
 ro.zram.size=1536
 ro.zram.mark_idle_delay_mins=20
@@ -101,8 +93,8 @@ ro.config.low_ram=true
 ro.sys.fw.bg_apps_limit=20
 EOF
 
-          # ===== Treble + VNDK + Dynamic SDK (افتراضية) =====
-          cat <<'EOF' >> $BUILD_PROP
+          # Treble + VNDK + Dynamic SDK
+          cat <<EOF >> $BUILD_PROP
 ro.treble.enabled=true
 ro.vendor.vndk.version=15
 ro.vndk.version=15
@@ -111,18 +103,17 @@ ro.vendor.sdk.version=15
 ro.board.first_api_level=30
 EOF
 
-          # إزالة أي branding من lineage/evolution
+          # إزالة أي branding
           sed -i '/lineage\./d;/evolution\./d' $BUILD_PROP || true
 
-          # ===== FSTAB Safe لأي GSI =====
-          mkdir -p $VENDOR_PATH/etc || true
+          # FSTAB Safe لأي GSI
+          mkdir -p $VENDOR_PATH/etc
           FSTAB_FILE=$VENDOR_PATH/etc/fstab.qcom
           touch $FSTAB_FILE
           sed -i 's|/dev/block/.*system|system|g' $FSTAB_FILE || true
           sed -i 's|/dev/block/.*vendor|vendor|g' $FSTAB_FILE || true
           sed -i 's|/dev/block/.*product|product|g' $FSTAB_FILE || true
 
-      # ===== Build Vendor Image =====
       - name: Build Vendor Image
         run: |
           cd $BUILD_DIR
@@ -133,7 +124,6 @@ EOF
           lunch aosp_gta4l-ap3a-userdebug
           mka vendorimage -j$(nproc --all)
 
-      # ===== Upload Vendor Image =====
       - name: Upload Vendor Image
         uses: actions/upload-artifact@v4
         with:
