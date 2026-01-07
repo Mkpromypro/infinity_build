@@ -1,4 +1,4 @@
-name: Universal Vendor SDK35 PRO (GSI + EvolutionX)
+name: Universal Vendor SDK35 PRO (AOSP / GSI / EvolutionX)
 
 on:
   workflow_dispatch:
@@ -8,8 +8,6 @@ env:
   USE_CCACHE: 1
   CCACHE_EXEC: /usr/bin/ccache
   CCACHE_DIR: ~/.ccache
-  CCACHE_COMPRESS: 1
-  CCACHE_COMPRESSLEVEL: 5
   CCACHE_MAXSIZE: 10G
 
 jobs:
@@ -45,29 +43,21 @@ jobs:
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: GitHub Authentication
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          git config --global user.name "MohamedKhaledPRO"
-          git config --global user.email "tabmohamedpro@gmail.com"
-          git config --global url."https://${GH_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
-
-      - name: Sync Android Source (SDK 35)
+      - name: Sync AOSP Android 15 (SDK 35)
         run: |
           mkdir -p build && cd build
 
           repo init \
-            -u https://github.com/Infinity-X-Project/manifest.git \
-            -b 15 \
+            -u https://android.googlesource.com/platform/manifest \
+            -b android-15.0.0_r5 \
             --depth=1
 
           repo sync -c -j$(nproc --all) \
             --force-sync \
-            --no-clone-bundle \
-            --no-tags
+            --no-tags \
+            --no-clone-bundle
 
-          # Device / Vendor / Kernel
+          # Device / Vendor / Kernel (public)
           git clone https://github.com/LineageOS/android_device_samsung_gta4l \
             -b lineage-22.1 device/samsung/gta4l --depth=1
 
@@ -77,12 +67,12 @@ jobs:
           git clone https://github.com/LineageOS/android_kernel_samsung_gta4l \
             -b lineage-22.1 kernel/samsung/gta4l --depth=1
 
-      - name: Vendor Hardening (Treble + GSI)
+      - name: Vendor Treble + SDK 35 Hardening
         run: |
           cd build
 
           cat <<EOF >> vendor/build.prop
-          # ===== TREBLE / VNDK =====
+          # ===== TREBLE / SDK 35 =====
           ro.treble.enabled=true
           ro.vendor.vndk.version=35
           ro.vndk.version=35
@@ -91,8 +81,8 @@ jobs:
           ro.board.first_api_level=30
           EOF
 
-          # Clean ROM tags
-          sed -i '/lineage\./d;/infinity\./d;/evolution\./d' vendor/build.prop || true
+          # Remove ROM branding
+          sed -i '/lineage\./d;/evolution\./d;/infinity\./d' vendor/build.prop || true
 
       - name: RAM Optimization (3GB Devices)
         run: |
@@ -134,5 +124,5 @@ jobs:
       - name: Upload Vendor Image
         uses: actions/upload-artifact@v4
         with:
-          name: Universal-Vendor-gta4l-SDK35-PRO
+          name: Universal-Vendor-gta4l-AOSP-SDK35-PRO
           path: build/out/target/product/gta4l/vendor.img
