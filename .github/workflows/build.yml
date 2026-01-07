@@ -1,12 +1,7 @@
-name: Ultra-Fast Low-Space Universal Vendor 14-16 / Evolution X / GSI
+name: Ultra-Fast Low-Space Universal Vendor Dynamic SDK
 
 on:
   workflow_dispatch:
-    inputs:
-      TARGET_SDK:
-        description: 'Target SDK for GSI (14/15/16)'
-        default: '15'
-        required: true
 
 env:
   TZ: Africa/Cairo
@@ -55,7 +50,7 @@ jobs:
           cd $BUILD_DIR
           pwd
 
-      # ===== Checkout Device / Vendor / Kernel =====
+      # ===== Checkout Device Tree =====
       - name: Checkout Device Tree
         uses: actions/checkout@v4
         with:
@@ -64,6 +59,7 @@ jobs:
           path: device/samsung/gta4l
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # ===== Checkout Vendor Blobs =====
       - name: Checkout Vendor Blobs
         uses: actions/checkout@v4
         with:
@@ -72,19 +68,10 @@ jobs:
           path: vendor/samsung/gta4l
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Checkout Kernel
-        uses: actions/checkout@v4
-        with:
-          repository: LineageOS/android_kernel_samsung_gta4l
-          ref: lineage-22.1
-          path: kernel/samsung/gta4l
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       # ===== Apply Universal Vendor Enhancements =====
       - name: Apply Universal Vendor Enhancements
         run: |
           cd $BUILD_DIR
-          SDK=${{ github.event.inputs.TARGET_SDK }}
 
           # RAM / ZRAM / LMKD / low_ram for 3GB devices
           cat <<EOF >> vendor/build.prop
@@ -101,14 +88,14 @@ jobs:
           ro.sys.fw.bg_apps_limit=20
           EOF
 
-          # Treble + VNDK + dynamic SDK
+          # Treble + VNDK + Dynamic SDK
           cat <<EOF >> vendor/build.prop
           ro.treble.enabled=true
-          ro.vendor.vndk.version=$SDK
-          ro.vndk.version=$SDK
-          ro.product.vndk.version=$SDK
-          ro.vendor.sdk.version=$SDK
-          ro.board.first_api_level=$((SDK-5))
+          ro.vendor.vndk.version=${ro.vendor.vndk.version}
+          ro.vndk.version=${ro.vndk.version}
+          ro.product.vndk.version=${ro.product.vndk.version}
+          ro.vendor.sdk.version=${ro.vendor.sdk.version}
+          ro.board.first_api_level=${ro.board.first_api_level}
           EOF
 
           # Remove lineage/evolution branding
@@ -136,5 +123,5 @@ jobs:
       - name: Upload Vendor Image
         uses: actions/upload-artifact@v4
         with:
-          name: UltraFast-LowSpace-Universal-Vendor-gta4l-SDK${{ github.event.inputs.TARGET_SDK }}
+          name: UltraFast-LowSpace-Universal-Vendor-gta4l-DynamicSDK
           path: $BUILD_DIR/out/target/product/gta4l/vendor.img
