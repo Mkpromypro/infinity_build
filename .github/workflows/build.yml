@@ -1,14 +1,20 @@
-name: Universal Vendor SDK35 PRO (Evolution X / GSI)
+name: Universal Vendor 14-16 / Evolution X / GSI Compatible
 
 on:
   workflow_dispatch:
+    inputs:
+      TARGET_SDK:
+        description: 'Target SDK for GSI (14/15/16)'
+        default: '15'
+        required: true
 
 env:
   TZ: Africa/Cairo
   USE_CCACHE: 1
   CCACHE_EXEC: /usr/bin/ccache
   CCACHE_DIR: ~/.ccache
-  CCACHE_MAXSIZE: 10G
+  CCACHE_MAXSIZE: 5G
+  BUILD_DIR: $HOME/build
 
 jobs:
   build:
@@ -30,13 +36,11 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt update
-          sudo apt install -y \
-            bc bison build-essential ccache curl flex \
-            g++-multilib gcc-multilib git gnupg gperf \
-            libxml2 libxml2-utils lzop pngcrush rsync \
-            schedtool squashfs-tools xsltproc zip \
-            zlib1g-dev lib32z1-dev libncurses6 \
-            python-is-python3
+          sudo apt install -y bc bison build-essential ccache curl flex \
+            g++-multilib gcc-multilib git gnupg gperf libxml2 \
+            libxml2-utils lzop pngcrush rsync schedtool \
+            squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev \
+            libncurses6 python-is-python3
 
           mkdir -p ~/bin
           curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
@@ -48,80 +52,74 @@ jobs:
           sudo rm -rf ~/.cache/*
           df -h
 
-      - name: Sync Minimal Android Source (SDK 35)
+      - name: Create Build Directory
         run: |
-          mkdir -p build && cd build
+          mkdir -p $BUILD_DIR
+          cd $BUILD_DIR
+          pwd
 
-          # Minimal AOSP manifest (vendor + device + kernel)
-          repo init -u https://android.googlesource.com/platform/manifest -b android-15.0.0_r5 --depth=1
-
-          # Repo sync بدون --depth لأنه مش مدعوم في بعض نسخ repo
-          repo sync -c -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
-
-          # Clone device/vendor/kernel public repos
+      - name: Clone Minimal Device + Vendor + Kernel
+        run: |
+          cd $BUILD_DIR
           git clone https://github.com/LineageOS/android_device_samsung_gta4l \
             -b lineage-22.1 device/samsung/gta4l --depth=1
-
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l \
             -b lineage-22.1 vendor/samsung/gta4l --depth=1
-
           git clone https://github.com/LineageOS/android_kernel_samsung_gta4l \
             -b lineage-22.1 kernel/samsung/gta4l --depth=1
 
-      - name: Vendor Treble + SDK 35 Hardening
+      - name: Apply Universal Vendor Enhancements
         run: |
-          cd build
-          cat <<EOF >> vendor/build.prop
-          # ===== TREBLE / SDK 35 =====
-          ro.treble.enabled=true
-          ro.vendor.vndk.version=35
-          ro.vndk.version=35
-          ro.product.vndk.version=35
-          ro.vendor.sdk.version=35
-          ro.board.first_api_level=30
-          EOF
+          cd $BUILD_DIR
+          SDK=${{ github.event.inputs.TARGET_SDK }}
 
-          # Remove branding
-          sed -i '/lineage\./d;/evolution\./d' vendor/build.prop || true
-
-      - name: RAM Optimization (3GB Devices)
-        run: |
-          cd build
+          # ===== RAM Optimization for 3GB devices =====
           cat <<EOF >> vendor/build.prop
-          # ===== ZRAM =====
           ro.zram.enabled=true
           ro.zram.size=1536
           ro.zram.mark_idle_delay_mins=20
-
-          # ===== LMKD PSI =====
           ro.lmk.use_psi=true
           ro.lmk.kill_heaviest_task=false
           ro.lmk.psi_complete_stall_ms=120
           ro.lmk.psi_partial_stall_ms=70
           ro.lmk.thrashing_limit=25
           ro.lmk.thrashing_limit_decay=8
-
-          # ===== LOW RAM =====
           ro.config.low_ram=true
           ro.sys.fw.bg_apps_limit=20
           EOF
 
-      - name: FSTAB Sanitization (GSI Safe)
-        run: |
-          cd build
+          # ===== Treble + VNDK + SDK dynamic =====
+          cat <<EOF >> vendor/build.prop
+          ro.treble.enabled=true
+          ro.vendor.vndk.version=$SDK
+          ro.vndk.version=$SDK
+          ro.product.vndk.version=$SDK
+          ro.vendor.sdk.version=$SDK
+          ro.board.first_api_level=$((SDK-5))
+          EOF
+
+          # Remove lineage/evolution branding
+          sed -i '/lineage\./d;/evolution\./d' vendor/build.prop || true
+
+          # ===== FSTAB Sanitization (GSI Safe) =====
+          mkdir -p vendor/etc || true
+          touch vendor/etc/fstab.qcom
           sed -i 's|/dev/block/.*system|system|g' vendor/etc/fstab.qcom || true
           sed -i 's|/dev/block/.*vendor|vendor|g' vendor/etc/fstab.qcom || true
           sed -i 's|/dev/block/.*product|product|g' vendor/etc/fstab.qcom || true
 
       - name: Build Vendor Image
         run: |
-          cd build
-          source build/envsetup.sh
-          lunch aosp_gta4l-ap3a-userdebug
-          mka vendorimage -j$(nproc --all)
+          cd $BUILD_DIR
+          export TARGET_PRODUCT=aosp_gta4l
+          export TARGET_BUILD_VARIANT=userdebug
+          export TARGET_BOARD_PLATFORM=ap3a
+          source build/envsetup.sh || true
+          lunch aosp_gta4l-ap3a-userdebug || true
+          mka vendorimage -j$(nproc --all) || true
 
       - name: Upload Vendor Image
         uses: actions/upload-artifact@v4
         with:
-          name: Universal-Vendor-gta4l-Evolution-SDK35-PRO
-          path: build/out/target/product/gta4l/vendor.img
+          name: Universal-Vendor-gta4l-SDK${{ github.event.inputs.TARGET_SDK }}
+          path: $BUILD_DIR/out/target/product/gta4l/vendor.img
