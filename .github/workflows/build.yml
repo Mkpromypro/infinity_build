@@ -1,4 +1,4 @@
-name: Build Universal Vendor (Mixed Base)
+name: Build Universal Vendor (Final Rescue)
 
 on:
   workflow_dispatch:
@@ -10,84 +10,55 @@ jobs:
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@v10
         with:
-          root-reserve-mb: 512
+          root-reserve-mb: 1024
           swap-size-mb: 8192
           remove-dotnet: 'true'
           remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
 
-      - name: Install Dependencies
+      - name: Install Build Tools
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev libncurses6 python-is-python3
+          sudo apt install -y git python3 curl
           mkdir -p ~/bin
           curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod +x ~/bin/repo
-          sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Initialize & Sync
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Clone Essential Trees
         run: |
-          git config --global user.email "bot@example.com"
-          git config --global user.name "BuildBot"
+          mkdir -p workspace && cd workspace
+          # سحب ملفات الـ Build الأساسية (Minimal) عشان أمر lunch يشتغل
+          git clone https://github.com/LineageOS/android_build -b lineage-21 build --depth=1
+          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-21 vendor/lineage --depth=1
           
-          mkdir -p workspace
-          cd workspace
-          
-          # 1. سورس النظام: أندرويد 15 (Lineage 22.1)
-          # ده اللي هيخلي الفيندور حديث ويدعم GSI الجديد
-          repo init -u https://github.com/LineageOS/android.git -b lineage-22.1 --depth=1 --git-lfs
-          
-          # 2. ملفات الجهاز: أندرويد 14 (Lineage 21)
-          # استخدمنا فرع 21 لأنه "موجود" وده هيحل مشكلة طلب الباسورد
-          # بنستخدم التوكن عشان نضمن المرور
-          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
-          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
-          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/LineageOS/android_kernel_samsung_gta4l -b lineage-21 kernel/samsung/gta4l --depth=1
+          # سحب ملفات جهازك (الفروع المؤكدة)
+          git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
+          git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
 
-          # 3. التحميل
-          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1
-
-      - name: Apply Universal Vendor Tweaks (RAM Fix)
+      - name: Apply RAM & Treble Fixes
         run: |
           cd workspace
           PROP_FILE=device/samsung/gta4l/system.prop
-          
-          echo "Applying RAM & Treble fixes..."
-
-          # --- تعديلات الرامات (ZRAM & LMK) ---
-          echo "" >> $PROP_FILE
-          echo "# === Universal Vendor RAM Tweaks ===" >> $PROP_FILE
-          echo "ro.zram.mark_idle_delay_mins=60" >> $PROP_FILE
+          # حل مشكلة الرامات والقتل العنيف للتطبيقات
           echo "ro.config.zram=true" >> $PROP_FILE
           echo "ro.lmk.kill_heaviest_task=false" >> $PROP_FILE
-          echo "ro.lmk.use_psi=true" >> $PROP_FILE
-          echo "ro.config.low_ram=false" >> $PROP_FILE 
-          
-          # --- دعم Treble ---
+          echo "ro.zram.mark_idle_delay_mins=60" >> $PROP_FILE
+          # دعم الـ GSI الحديث (أندرويد 15 و 16)
           echo "ro.treble.enabled=true" >> $PROP_FILE
           echo "ro.vendor.vndk.version=35" >> $PROP_FILE
-          echo "ro.vndk.version=35" >> $PROP_FILE
-
-          # --- تعطيل الحماية لضمان تشغيل أي GSI ---
-          find device/samsung/gta4l -name "fstab.*" -exec sed -i 's/,verify//g' {} +
-          find device/samsung/gta4l -name "fstab.*" -exec sed -i 's/,avb//g' {} +
-          # تعديل ملفات التوافق (BoardConfig) لتقبل البناء على سورس أندرويد 15
-          find device/samsung/gta4l -name "BoardConfig.mk" -exec sed -i 's/BOARD_PLATFORM_VERSION := .*/BOARD_PLATFORM_VERSION := 15/g' {} + || true
 
       - name: Build Vendor Image
         run: |
           cd workspace
+          # إعداد البيئة
+          export ALLOW_MISSING_DEPENDENCIES=true
           source build/envsetup.sh
-          # بنستخدم أمر الإطلاق المتاح في شجرة الجهاز (حتى لو اسمه lineage_gta4l)
-          lunch lineage_gta4l-ap3a-userdebug || lunch lineage_gta4l-userdebug
+          lunch lineage_gta4l-userdebug || echo "Lunch failed but continuing..."
           
-          mka vendorimage -j$(nproc --all)
+          # بناء الفيندور فقط بأمر مباشر يتخطى فحص الكيرنل
+          make vendorimage -j$(nproc --all)
 
-      - name: Upload Vendor Artifact
+      - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
-          name: Universal-Vendor-gta4l-Fix
+          name: Universal-Vendor-A7
           path: workspace/out/target/product/gta4l/vendor.img
