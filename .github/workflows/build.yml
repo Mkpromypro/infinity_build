@@ -6,7 +6,7 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Freeing up disk space
+      - name: Free Space
         uses: easimon/maximize-build-space@main
         with:
           root-reserve-mb: 512
@@ -17,7 +17,7 @@ jobs:
           remove-codeql: 'true'
           remove-docker-images: 'true'
 
-      - name: Set up Environment
+      - name: Setup Env
         run: |
           sudo apt update
           sudo apt install bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev -y
@@ -26,14 +26,12 @@ jobs:
           chmod a+x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Sync and Build
+      - name: Build ROM
         run: |
           git config --global user.email "tabmohamedpro@gmail.com"
           git config --global user.name "Mkpromypro"
-          
           mkdir build && cd build
           repo init -u https://github.com/ProjectInfinity-X/manifest -b 15 --depth=1
-          
           mkdir -p .repo/local_manifests
           echo '<?xml version="1.0" encoding="UTF-8"?>
           <manifest>
@@ -43,10 +41,7 @@ jobs:
             <project name="TheMuppets/proprietary_vendor_samsung_gta4l" path="vendor/samsung/gta4l" remote="github" revision="lineage-22.1" />
             <project name="TheMuppets/proprietary_vendor_samsung_gta4l-common" path="vendor/samsung/gta4l-common" remote="github" revision="lineage-22.1" />
           </manifest>' > .repo/local_manifests/gta4l.xml
-          
-          # أمر الـ Sync ده هو اللي هيوفر المساحة
-          repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all)
-          
+          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
           source build/envsetup.sh
           lunch infinity_gta4l-ap3a-userdebug
           mka bacon
