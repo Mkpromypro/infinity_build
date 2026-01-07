@@ -1,4 +1,4 @@
-name: Ultra-Fast Low-Space Universal Vendor Dynamic SDK (Fixed build.prop)
+name: Ultra-Fast Universal Vendor Dynamic SDK (Verified)
 
 on:
   workflow_dispatch:
@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      # ===== Maximize Disk Space =====
       - name: Maximize Disk Space
         uses: easimon/maximize-build-space@v10
         with:
@@ -25,6 +26,7 @@ jobs:
           remove-android: true
           remove-haskell: true
 
+      # ===== Install Dependencies =====
       - name: Install Dependencies
         run: |
           sudo apt update
@@ -33,17 +35,18 @@ jobs:
             libxml2-utils lzop pngcrush rsync schedtool \
             squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev \
             libncurses6 python-is-python3
-
           mkdir -p ~/bin
           curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
+      # ===== Cleanup Disk Space =====
       - name: Cleanup Disk Space
         run: |
           sudo rm -rf ~/.cache/*
           df -h
 
+      # ===== Create Build Directory =====
       - name: Create Build Directory
         run: |
           mkdir -p $BUILD_DIR
@@ -55,7 +58,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: LineageOS/android_device_samsung_gta4l
-          ref: lineage-22.1
+          ref: lineage-22.2
           path: device/samsung/gta4l
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -64,7 +67,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TheMuppets/proprietary_vendor_samsung_gta4l
-          ref: lineage-22.1
+          ref: lineage-22.2
           path: vendor/samsung/gta4l
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -83,7 +86,7 @@ jobs:
               touch $BUILD_PROP
           fi
 
-          # RAM / ZRAM / LMKD / low_ram للأجهزة 3GB
+          # ===== RAM / ZRAM / LMKD / Low-RAM Tweaks =====
           cat <<EOF >> $BUILD_PROP
 ro.zram.enabled=true
 ro.zram.size=1536
@@ -98,20 +101,20 @@ ro.config.low_ram=true
 ro.sys.fw.bg_apps_limit=20
 EOF
 
-          # Treble + VNDK + Dynamic SDK
+          # ===== Treble + VNDK + Dynamic SDK (افتراضية) =====
           cat <<EOF >> $BUILD_PROP
 ro.treble.enabled=true
-ro.vendor.vndk.version=${ro.vendor.vndk.version}
-ro.vndk.version=${ro.vndk.version}
-ro.product.vndk.version=${ro.product.vndk.version}
-ro.vendor.sdk.version=${ro.vendor.sdk.version}
-ro.board.first_api_level=${ro.board.first_api_level}
+ro.vendor.vndk.version=15
+ro.vndk.version=15
+ro.product.vndk.version=15
+ro.vendor.sdk.version=15
+ro.board.first_api_level=30
 EOF
 
           # إزالة أي branding من lineage/evolution
           sed -i '/lineage\./d;/evolution\./d' $BUILD_PROP || true
 
-          # FSTAB safe لأي GSI
+          # ===== FSTAB Safe لأي GSI =====
           mkdir -p $VENDOR_PATH/etc || true
           FSTAB_FILE=$VENDOR_PATH/etc/fstab.qcom
           touch $FSTAB_FILE
@@ -126,9 +129,9 @@ EOF
           export TARGET_PRODUCT=aosp_gta4l
           export TARGET_BUILD_VARIANT=userdebug
           export TARGET_BOARD_PLATFORM=ap3a
-          source build/envsetup.sh || true
-          lunch aosp_gta4l-ap3a-userdebug || true
-          mka vendorimage -j$(nproc --all) || true
+          source build/envsetup.sh
+          lunch aosp_gta4l-ap3a-userdebug
+          mka vendorimage -j$(nproc --all)
 
       # ===== Upload Vendor Image =====
       - name: Upload Vendor Image
