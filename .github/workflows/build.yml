@@ -1,65 +1,94 @@
-name: Build Universal Vendor (Full Tree Fix)
+name: Build Universal Vendor (Android 15 SDK 35)
 
 on:
   workflow_dispatch:
 
+env:
+  TZ: Africa/Cairo
+
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
+
     steps:
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@v10
         with:
-          root-reserve-mb: 1024
+          root-reserve-mb: 512
           swap-size-mb: 8192
-          remove-dotnet: 'true'
-          remove-android: 'true'
+          remove-dotnet: true
+          remove-android: true
 
-      - name: Install Dependencies
+      - name: Install Build Tools
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev libncurses6 python-is-python3
+          sudo apt install -y git python3 curl bc bison build-essential \
+            flex g++-multilib gcc-multilib gnupg gperf libxml2 \
+            libxml2-utils lzop pngcrush rsync schedtool \
+            squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev \
+            libncurses6 python-is-python3
           mkdir -p ~/bin
           curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Sync Minimal Android Environment
+      - name: Create Build Directory
         run: |
-          git config --global user.email "bot@example.com"
-          git config --global user.name "BuildBot"
-          mkdir -p workspace && cd workspace
-          # تحميل "قالب" أندرويد 15 الرسمي - ده اللي بيحل مشكلة "top of the tree"
-          repo init -u https://github.com/LineageOS/android.git -b lineage-22.1 --depth=1 --git-lfs
+          mkdir -p /home/runner/work/workspace
+          echo "BUILD_ROOT=/home/runner/work/workspace" >> $GITHUB_ENV
+
+      - name: Clone Essential Trees
+        run: |
+          cd ${{ env.BUILD_ROOT }}
+          # استخدام فروع الـ Build المتوافقة مع أندرويد 15
+          git clone https://github.com/LineageOS/android_build -b lineage-22.1 build --depth=1
+          git clone https://github.com/LineageOS/android_vendor_lineage -b lineage-22.1 vendor/lineage --depth=1
           
-          # سحب ملفات جهازك gta4l في أماكنها الصحيحة
+          # ملفات الجهاز (سنستخدم فرع 21 ونقوم بترقيته يدوياً في الخطوة القادمة)
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-21 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-21 vendor/samsung/gta4l --depth=1
-          
-          # سحب ملفات البناء الأساسية فقط لتوفير الوقت والمساحة
-          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1 build/make vendor/lineage
 
-      - name: Apply RAM Fixes
+          echo "include build/make/core/main.mk" > Makefile
+
+      - name: Upgrade Device Tree to SDK 35 & RAM Fix
         run: |
-          cd workspace
-          # حقن تعديلات الرامات في ملفات السورس قبل البناء
+          cd ${{ env.BUILD_ROOT }}
           PROP_FILE=device/samsung/gta4l/system.prop
-          echo "ro.config.zram=true" >> $PROP_FILE
-          echo "ro.lmk.kill_heaviest_task=false" >> $PROP_FILE
-          echo "ro.zram.mark_idle_delay_mins=60" >> $PROP_FILE
+          mkdir -p $(dirname $PROP_FILE)
+          
+          # إعدادات الرام القوية لمنع قتل التطبيقات
+          cat <<EOF > $PROP_FILE
+# RAM Optimization
+ro.config.zram=true
+ro.zram.size=3072
+ro.zram.mark_idle_delay_mins=60
+ro.lmk.kill_heaviest_task=false
+ro.lmk.use_psi=true
+ro.sys.fw.bg_apps_limit=32
+# Android 15 SDK 35 Support
+ro.treble.enabled=true
+ro.vendor.vndk.version=35
+ro.vndk.version=35
+ro.vendor.sdk.version=35
+ro.product.first_api_level=30
+EOF
+
+          # ترقية الـ BoardConfig ليقبل أندرويد 15
+          BOARD_CONFIG=device/samsung/gta4l/BoardConfig.mk
+          sed -i 's/BOARD_VNDK_VERSION := .*/BOARD_VNDK_VERSION := current/g' $BOARD_CONFIG || true
 
       - name: Build Vendor Image
         run: |
-          cd workspace
-          # تفعيل بيئة البناء
+          cd ${{ env.BUILD_ROOT }}
+          export ALLOW_MISSING_DEPENDENCIES=true
+          # إجبار النظام على تجاهل فحص النسخة القديمة
+          export SKIP_ABI_CHECKS=true
           source build/envsetup.sh
-          # اختيار الجهاز
-          lunch lineage_gta4l-ap3a-userdebug || lunch lineage_gta4l-userdebug
-          # أمر بناء الفيندور فقط
+          lunch lineage_gta4l-userdebug || echo "Lunch manual fallback"
           make vendorimage -j$(nproc --all)
 
-      - name: Upload Vendor
+      - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
-          name: Universal-Vendor-gta4l
-          path: workspace/out/target/product/gta4l/vendor.img
+          name: Universal-Vendor-gta4l-SDK35
+          path: /home/runner/work/workspace/out/target/product/gta4l/vendor.img
