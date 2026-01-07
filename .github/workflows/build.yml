@@ -87,7 +87,7 @@ jobs:
           fi
 
           # ===== RAM / ZRAM / LMKD / Low-RAM Tweaks =====
-          cat <<EOF >> $BUILD_PROP
+          cat <<'EOF' >> $BUILD_PROP
 ro.zram.enabled=true
 ro.zram.size=1536
 ro.zram.mark_idle_delay_mins=20
@@ -102,7 +102,7 @@ ro.sys.fw.bg_apps_limit=20
 EOF
 
           # ===== Treble + VNDK + Dynamic SDK (افتراضية) =====
-          cat <<EOF >> $BUILD_PROP
+          cat <<'EOF' >> $BUILD_PROP
 ro.treble.enabled=true
 ro.vendor.vndk.version=15
 ro.vndk.version=15
