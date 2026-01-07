@@ -1,60 +1,28 @@
-name: Build Universal Vendor for gta4l
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Maximize Build Space
-        uses: easimon/maximize-build-space@v10
-        with:
-          root-reserve-mb: 1024
-          swap-size-mb: 2048
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-
-      - name: Setup Build Environment
-        run: |
-          sudo apt update
-          # استخدام الحزم المتوافقة مع Ubuntu 24.04 لتجنب Error 100
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lib32z1-dev libncurses6
-          mkdir -p ~/bin
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod a+x ~/bin/repo
-          sudo ln -sf ~/bin/repo /usr/bin/repo
-
       - name: Build Vendor Image
         run: |
+          # إعدادات الهوية
           git config --global user.email "tabmohamedpro@gmail.com"
           git config --global user.name "Mkpromypro"
           
+          # إجبار Git على استخدام الـ HTTPS بدون طلب كلمة سر
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git config --global http.postBuffer 524288000
+          
           mkdir -p build && cd build
           
-          # تعديل الرابط للصيغة المباشرة لتجنب مشاكل التصريح
-          repo init -u https://github.com/Infinity-X-Project/manifest -b 15 --depth=1 --git-lfs
+          # استخدام رابط الـ .git المباشر وهو الحل الأضمن
+          repo init -u https://github.com/Infinity-X-Project/manifest.git -b 15 --depth=1
           
           # سحب ملفات جهازك gta4l
           git clone https://github.com/LineageOS/android_device_samsung_gta4l -b lineage-22.1 device/samsung/gta4l --depth=1
           git clone https://github.com/TheMuppets/proprietary_vendor_samsung_gta4l -b lineage-22.1 vendor/samsung/gta4l --depth=1
           git clone https://github.com/LineageOS/android_kernel_samsung_gta4l -b lineage-22.1 kernel/samsung/gta4l --depth=1
 
-          # أمر Sync قوي يتجاهل أخطاء التصريح البسيطة
+          # أمر Sync قوي جداً لتوفير المساحة وتخطي الأخطاء
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1
           
           source build/envsetup.sh
           lunch infinity_gta4l-ap3a-userdebug
           
-          # بناء الفيندور فقط لتوفير المساحة وتجنب No Space Left
+          # بناء الفيندور فقط لضمان عدم امتلاء المساحة
           mka vendorimage -j$(nproc --all)
-
-      - name: Upload Vendor
-        uses: actions/upload-artifact@v4
-        with:
-          name: Universal-Vendor-gta4l
-          path: build/out/target/product/gta4l/vendor.img
